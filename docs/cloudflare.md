@@ -10,6 +10,8 @@ The MCP App downloads the current edited canvas as `.excalidraw` or SVG. The
 Worker does not advertise `lesson://` resource links or keep lesson state between
 requests; the Node server retains its latest 32 initial scene resources.
 
+The live MCP URL is [https://visual-learning-mcp.shop-everywhere.workers.dev/mcp](https://visual-learning-mcp.shop-everywhere.workers.dev/mcp). The deployed Worker passed the protocol smoke check on October 12, 2026. For a browser preview, open [the demo host](https://visual-learning-mcp.shop-everywhere.workers.dev/host).
+
 The default `LESSON_PLANNER=host` needs no model name or provider API key.
 ChatGPT or Codex writes a structured lesson using its own model, then calls
 `teach_visually({ topic, level, lesson })`. The Worker validates that lesson and
@@ -54,13 +56,44 @@ Wrangler prints a URL similar to
 `https://visual-learning-mcp.<your-subdomain>.workers.dev`. Use its `/mcp` path
 as the remote MCP URL. The default deployment accepts assistant-authored lessons
 and makes no server-side LLM calls. The private Git repository does not itself
-make this endpoint private. Deployment needs a valid Cloudflare login; a public
-deployment has not been verified.
+make this endpoint private. Manual deployment needs a valid Cloudflare login.
 
 To protect the MCP API, set an `MCP_API_TOKEN` secret on that Worker
 and send `Authorization: Bearer <token>` from the MCP client. Do not embed the
 token in browser source or commit it to the repository. This API token is intended
 for clients that support custom request headers; it is not an OAuth flow.
+
+## Deploy automatically after a push
+
+Cloudflare Workers Builds can connect `tobi-oye/visual-learning-mcp` and deploy
+the `main` branch after each push. It runs Wrangler within Cloudflare's CI and
+manages a build credential; local Wrangler login is not needed for those builds.
+The repository connection must be configured in the dashboard before this is active.
+
+Open the Worker's **Settings → Builds → Connect** and use:
+
+| Setting | Value |
+| --- | --- |
+| Repository | `tobi-oye/visual-learning-mcp` |
+| Production branch | `main` |
+| Root directory | Repository root |
+| Build command | `npm run typecheck && npm test && npm run worker:typecheck && npm run build:worker` |
+| Deploy command | `npx wrangler deploy --env ""` |
+| Node version | `24`, selected by the committed `.node-version` file |
+
+If GitHub asks for repository access, add only `visual-learning-mcp` and preserve
+access already granted to other repositories. Workers Builds
+offers a generated build token or an existing token. This app needs Workers Scripts
+edit access and account lookup; it has no KV, R2, or custom-domain dependencies.
+
+GitHub Actions is an alternative. It also runs Wrangler, using a Cloudflare API
+token stored in GitHub Actions secrets. The native build integration avoids managing
+that deployment secret in GitHub.
+
+See [Workers Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+and [GitHub integration](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/).
+The [build image documentation](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)
+describes the `.node-version` runtime selection.
 
 ## Connect ChatGPT or Codex
 
@@ -74,7 +107,7 @@ Codex can connect through Streamable HTTP:
 
 ```toml
 [mcp_servers.visual_learning]
-url = "https://visual-learning-mcp.<your-subdomain>.workers.dev/mcp"
+url = "https://visual-learning-mcp.shop-everywhere.workers.dev/mcp"
 ```
 
 For a token-protected endpoint, configure client authorization according to the

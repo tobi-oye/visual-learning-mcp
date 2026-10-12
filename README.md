@@ -183,7 +183,7 @@ npm run worker:check  # build and validate a deployment dry run
 npm run worker:deploy # publish with a valid Wrangler login
 ```
 
-Deployment requires a current Cloudflare login. A live deployment has not been verified.
+The deployed MCP endpoint is [https://visual-learning-mcp.shop-everywhere.workers.dev/mcp](https://visual-learning-mcp.shop-everywhere.workers.dev/mcp). The browser demo is available at the same origin's `/` and `/host` paths. The public endpoint passed the MCP smoke check on October 12, 2026, including host-authored lesson rendering and the packaged UI resource. The public `/host` also rendered the five-chapter event-loop lesson through the MCP App bridge. See [Cloudflare setup](docs/cloudflare.md) for deploy-on-push configuration.
 
 ## Architecture
 
@@ -226,6 +226,6 @@ The source is organized around that pipeline:
 
 The event-loop scene has rendered through the real MCP protocol in the bundled HTTP host and Inspector's Apps tab. All five sections were inspected visually, and an edited annotation was verified in copyable scene JSON. In-app-browser download completion could not be confirmed, so the copyable export provides a verified fallback.
 
-An actual Codex CLI run used its existing account authentication to call `get_lesson_guide`, author a new TCP handshake lesson, and call `teach_visually`. The server returned three sections and 50 native Excalidraw elements in host mode without server model credentials. Inspector rendered that same host-authored lesson in its Apps tab. The stdio and local Worker smoke checks also rendered the supplied binary-search lesson. A public Cloudflare deployment and live inline rendering inside ChatGPT or Codex have not been verified.
+An actual Codex CLI run used its existing account authentication to call `get_lesson_guide`, author a new TCP handshake lesson, and call `teach_visually`. The server returned three sections and 50 native Excalidraw elements in host mode without server model credentials. Inspector rendered that same host-authored lesson in its Apps tab. The stdio, local Worker, and deployed Worker smoke checks also rendered the supplied binary-search lesson. Live inline rendering inside ChatGPT or Codex has not been verified.
 
 The MVP focuses on a complete first lesson. It has no accounts, quizzes, databases, or adaptive follow-up workflow. Remote provider calls and each assistant host need verification with the intended configuration.
