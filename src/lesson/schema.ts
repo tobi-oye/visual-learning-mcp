@@ -63,13 +63,32 @@ export const lessonGuideInputSchema = z.object({
   level: levelSchema.default("beginner"),
 });
 
+export const DEFAULT_DEMO_TOPIC = "JavaScript event loop";
+const blankText = z.string().trim().max(0);
+// Inspector may submit an untouched/cleared nested form. Ignore only a fully
+// blank envelope; nonblank incomplete lessons still fail normal validation.
+const blankLessonFormSchema = z.object({
+  topic: blankText.optional(),
+  title: blankText.optional(),
+  level: blankText.nullish(),
+  summary: blankText.optional(),
+  steps: z.union([blankText, z.array(z.never()).length(0)]).optional(),
+}).strict();
+
+function isCompleteLesson(lesson: Lesson | z.infer<typeof blankLessonFormSchema> | null): lesson is Lesson {
+  // Both branches have already been validated; only a complete lesson has steps.
+  return Array.isArray(lesson?.steps) && lesson.steps.length > 0;
+}
+
 export const teachInputSchema = z.object({
-  topic: topicSchema.describe("The user's learning topic. Copy this into lesson.topic."),
-  level: levelSchema.optional().describe("Defaults to the supplied lesson's level, or beginner for topic-only demo requests."),
-  lesson: lessonSchema.optional().describe("For arbitrary topics, the calling host assistant writes this complete lesson using its own reasoning. No server API key or MCP sampling is needed. Include 3–6 steps with 2–4 visual nodes each; use unique step IDs and unique node IDs within each step. Cards/comparison have empty edges; flow/sequence edges connect adjacent nodes in array reading order only. The server draws the lesson in Excalidraw at runtime. Omit only to use the event-loop or photosynthesis demo."),
+  topic: z.string().trim().max(200).default(DEFAULT_DEMO_TOPIC).describe("The user's learning topic. Defaults to the JavaScript event-loop demo if omitted or blank. Copy this into a supplied lesson.topic."),
+  level: z.enum(["", "beginner", "intermediate", "advanced"]).nullish().meta({ default: "beginner" }).describe("Defaults to the supplied lesson's level, or beginner for demos. Blank means use that default."),
+  // Three branches keep Inspector's optional object in a JSON editor instead
+  // of expanding required nested fields. null is the ready-to-run demo value.
+  lesson: z.union([lessonSchema, blankLessonFormSchema, z.null()]).default(null).describe("Leave null for the event-loop or photosynthesis demo. For arbitrary topics, the calling host assistant supplies a complete lesson object using its own reasoning; no API key is needed. Include 3–6 steps with 2–4 visual nodes each and unique IDs. Cards/comparison have empty edges; flow/sequence edges connect adjacent nodes in reading order. The server draws it in Excalidraw at runtime."),
 }).superRefine((request, ctx) => {
-  if (!request.lesson) return;
-  if (request.lesson.topic.trim().toLowerCase() !== request.topic.toLowerCase()) {
+  if (!isCompleteLesson(request.lesson)) return;
+  if (request.lesson.topic.trim().toLowerCase() !== (request.topic || DEFAULT_DEMO_TOPIC).toLowerCase()) {
     ctx.addIssue({ code: "custom", path: ["lesson", "topic"], message: "Lesson topic must match the requested topic" });
   }
   if (request.level && request.lesson.level !== request.level) {
@@ -79,10 +98,15 @@ export const teachInputSchema = z.object({
 
 export type Lesson = z.infer<typeof lessonSchema>;
 export type LessonStep = Lesson["steps"][number];
-export type TeachInput = z.infer<typeof teachInputSchema>;
+export type TeachInput = z.input<typeof teachInputSchema>;
 export type Level = z.infer<typeof levelSchema>;
 
-export function resolveTeachInput(input: TeachInput): TeachInput & { level: Level } {
+export function resolveTeachInput(input: TeachInput): { topic: string; level: Level; lesson?: Lesson } {
   const request = teachInputSchema.parse(input);
-  return { ...request, level: request.level ?? request.lesson?.level ?? "beginner" };
+  const lesson = isCompleteLesson(request.lesson) ? request.lesson : undefined;
+  return {
+    topic: request.topic || DEFAULT_DEMO_TOPIC,
+    level: request.level || lesson?.level || "beginner",
+    ...(lesson ? { lesson } : {}),
+  };
 }

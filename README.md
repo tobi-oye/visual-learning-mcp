@@ -52,7 +52,7 @@ The bundled `/host` connects with the official SDK's HTTP client, discovers the 
 
 ## Lesson planning
 
-The default `LESSON_PLANNER=host` uses structured lessons supplied by the connected assistant. It also accepts topic-only calls for the JavaScript event-loop and photosynthesis fixtures, which remain useful for demos. `LESSON_PLANNER=fixture` keeps the same deterministic demos; a supplied valid lesson is accepted in every mode.
+The default `LESSON_PLANNER=host` uses structured lessons supplied by the connected assistant. It also accepts topic-only calls for the JavaScript event-loop and photosynthesis fixtures, which remain useful for demos. With no arguments (or a blank topic), it opens the beginner event-loop demo. `lesson` defaults to `null`; an entirely blank lesson form is also treated as omitted. `LESSON_PLANNER=fixture` keeps the same deterministic demos; a supplied valid lesson is accepted in every mode.
 
 For any other topic, a topic-only call in host or fixture mode returns `status: "needs_lesson"` with planning instructions and the lesson schema. The assistant should author the requested lesson and call `teach_visually` again with `lesson`; it does not need to ask the user for a provider key. Inspector and the bundled browser test host have no model of their own, so arbitrary topics require pasting a structured lesson into their tool input.
 
@@ -135,9 +135,17 @@ Keep `npm run serve` running, then start Inspector in another terminal:
 npm run inspect
 ```
 
-In Inspector's **Apps** tab, select `teach_visually`, enter an event-loop or photosynthesis topic, and open the app. Inspector 2.10.1 renders the MCP App with its editable Excalidraw canvas. For an arbitrary topic, call `get_lesson_guide` to inspect the schema, then include a complete `lesson` object in the `teach_visually` arguments. Inspector is a protocol and UI tester; it does not author that lesson for you.
+In Inspector's **Apps** tab, select `teach_visually` and open the app with its defaults. The default topic is `JavaScript event loop`, difficulty is beginner, and lesson JSON is `null`. Changing only the topic to `photosynthesis` opens that demo. Inspector 2.10.1 renders the editable Excalidraw canvas. After updating the server, reload Inspector and reconnect to refresh its input schema.
 
-For a ready manual example, use **Edit as JSON** with `{ "topic": "Binary search", "lesson": … }`, placing the contents of [`examples/binary-search.lesson.json`](examples/binary-search.lesson.json) in `lesson`. The local `/host` also accepts this lesson in its collapsed prepared-lesson input.
+The complete minimal test arguments are:
+
+```json
+{ "topic": "JavaScript event loop" }
+```
+
+`{}` also works. Leave `lesson` at `null`; `lesson.steps` is an array in a full lesson, never a quoted string.
+
+For an arbitrary topic, call `get_lesson_guide` to inspect the schema, then include a complete `lesson` object in the `teach_visually` arguments. Inspector does not author that lesson for you. A ready lesson is [`examples/binary-search.lesson.json`](examples/binary-search.lesson.json): set the outer topic to `Binary search` and put the parsed contents of that file in `lesson`. The local `/host` accepts the same file in its collapsed prepared-lesson input.
 
 ### Check inline rendering with the official reference host
 

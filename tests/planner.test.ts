@@ -106,6 +106,18 @@ test("MCP exposes host planning data without UI metadata and renders the host's 
     assert.deepEqual(renderer._meta?.ui, { resourceUri: APP_URI });
     assert.equal(guideTool._meta?.ui, undefined);
     assert.ok(renderer.inputSchema.properties && "lesson" in renderer.inputSchema.properties);
+    assert.equal((renderer.inputSchema.properties.lesson as { default?: unknown }).default, null);
+    for (const [args, chapters] of [
+      [{}, 5],
+      [{ topic: "photosynthesis", lesson: null }, 4],
+      [{ topic: "", level: "", lesson: { topic: "", title: "", level: "", summary: "", steps: "" } }, 5],
+    ] as const) {
+      const demo = await client.callTool({ name: "teach_visually", arguments: args });
+      assert.ok(!demo.isError, JSON.stringify(demo.content));
+      assert.equal((demo.structuredContent as unknown as VisualLesson).sections.length, chapters);
+    }
+    const malformed = await client.callTool({ name: "teach_visually", arguments: { topic: hostLesson.topic, lesson: { ...hostLesson, steps: JSON.stringify(hostLesson.steps) } } });
+    assert.equal(malformed.isError, true, "Nonblank malformed host content must still be rejected");
     const missing = await client.callTool({ name: "teach_visually", arguments: { topic: hostLesson.topic, level: "intermediate" } });
     assert.ok(!missing.isError);
     assert.equal((missing.structuredContent as unknown as NeedsLessonResult).status, "needs_lesson");

@@ -54,7 +54,7 @@ try {
   assert.ok("text" in resource && typeof resource.text === "string");
   assert.ok(resource.text.includes("<html"));
   assert.ok(resource.text.includes("data:font/woff2;base64,"), "The app should carry fonts into its sandbox.");
-  const invalid = await client.callTool({ name: "teach_visually", arguments: { topic: "" } });
+  const invalid = await client.callTool({ name: "teach_visually", arguments: { topic: 42 } });
   assert.equal(invalid.isError, true);
   const forbidden = await fetch(endpoint, { method: "POST", headers: { Origin: "https://untrusted.example" } });
   assert.equal(forbidden.status, 403);

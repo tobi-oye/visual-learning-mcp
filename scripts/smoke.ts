@@ -39,7 +39,7 @@ try {
   assert.equal(rendered.planner, "host");
   assert.equal(rendered.sections.length, lesson.steps.length);
   assert.ok(rendered.scene.elements.some(element => element.type === "text" && element.text.includes("Binary search")));
-  const bad = await client.callTool({ name: "teach_visually", arguments: { topic: "" } });
+  const bad = await client.callTool({ name: "teach_visually", arguments: { topic: 42 } });
   assert.equal(bad.isError, true);
   console.log(`MCP stdio smoke passed: demo (${visual.scene.elements.length} elements), host lesson (${rendered.scene.elements.length} elements), planning guide, Apps metadata, UI and editable scene resources, invalid input.`);
 } finally { await client.close(); }
