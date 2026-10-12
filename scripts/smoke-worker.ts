@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
+import { APP_URI } from "../src/server.js";
+import { lessonSchema } from "../src/lesson/schema.js";
+import type { SectionBounds } from "../src/render/types.js";
+
+const endpoint = new URL(process.argv[2] ?? "http://localhost:8787/mcp");
+const health = await fetch(new URL("/health", endpoint));
+const configuration = await health.json() as { planner?: string };
+assert.equal(configuration.planner, "fixture", "This smoke check only runs against fixture mode; it never makes paid LLM calls.");
+const client = new Client({ name: "visual-learning-worker-smoke", version: "0.1.0" });
+try {
+  await client.connect(new StreamableHTTPClientTransport(endpoint));
+  const { tools } = await client.listTools();
+  const tool = tools.find(candidate => candidate.name === "teach_visually");
+  assert.ok(tool);
+  assert.equal(getToolUiResourceUri(tool), APP_URI);
+  const result = CallToolResultSchema.parse(await client.callTool({ name: "teach_visually", arguments: { topic: "JavaScript event loop", level: "beginner" } }));
+  assert.ok(!result.isError, JSON.stringify(result.content));
+  const visual = result.structuredContent;
+  assert.ok(visual);
+  const lesson = lessonSchema.parse(visual.lesson);
+  assert.equal(lesson.steps.length, 5);
+  assert.equal(visual.resourceUri, undefined);
+  assert.ok(!result.content.some(content => content.type === "resource_link"));
+  const scene = visual.scene as { type?: string; elements?: { id?: string }[] };
+  assert.equal(scene.type, "excalidraw");
+  assert.ok(Array.isArray(scene.elements) && scene.elements.length > 0);
+  const sections = visual.sections as SectionBounds[];
+  assert.ok(Array.isArray(sections));
+  assert.equal(sections.length, 5);
+  const elementIds = new Set(scene.elements.map(element => element.id));
+  sections.forEach((section, index) => {
+    assert.equal(section.id, lesson.steps[index].id);
+    assert.equal(section.title, lesson.steps[index].title);
+    assert.equal(section.number, index + 1);
+    assert.ok([section.x, section.y, section.width, section.height].every(Number.isFinite));
+    assert.ok(section.width > 0 && section.height > 0);
+    assert.ok(section.elementIds.length > 0 && section.elementIds.every(id => elementIds.has(id)));
+  });
+  assert.equal((await client.listResourceTemplates()).resourceTemplates.length, 0);
+  const app = await client.readResource({ uri: APP_URI });
+  const resource = app.contents[0];
+  assert.equal(resource.mimeType, "text/html;profile=mcp-app");
+  assert.ok("text" in resource && typeof resource.text === "string");
+  assert.ok(resource.text.includes("<html"));
+  assert.ok(resource.text.includes("data:font/woff2;base64,"), "The app should carry fonts into its sandbox.");
+  const invalid = await client.callTool({ name: "teach_visually", arguments: { topic: "" } });
+  assert.equal(invalid.isError, true);
+  const forbidden = await fetch(endpoint, { method: "POST", headers: { Origin: "https://untrusted.example" } });
+  assert.equal(forbidden.status, 403);
+  const oversized = await fetch(new URL("/api/teach", endpoint), { method: "POST", headers: { "Content-Type": "application/json" }, body: "x".repeat(16 * 1024 + 1) });
+  assert.equal(oversized.status, 413);
+  console.log(`Worker MCP smoke passed: tool discovery, Apps metadata, scene (${scene.elements.length} elements), five sections, stateless results, embedded UI/fonts, invalid input, Origin checks, and request limits (${endpoint.origin}).`);
+} finally { await client.close(); }

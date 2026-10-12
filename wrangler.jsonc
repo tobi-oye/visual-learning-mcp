@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "visual-learning-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/worker-assets",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "LESSON_PLANNER": "fixture",
+    "LLM_MODEL": "",
+    "LLM_BASE_URL": "https://api.openai.com/v1",
+    "LLM_TIMEOUT_MS": "60000",
+    "ALLOWED_ORIGINS": ""
+  },
+  "secrets": { "required": [] },
+  // Deploy the optional LLM version with --env llm after choosing LLM_MODEL.
+  // Wrangler validates these secrets before deploying that environment.
+  "env": {
+    "llm": {
+      "name": "visual-learning-mcp-llm",
+      "vars": {
+        "LESSON_PLANNER": "llm",
+        "LLM_MODEL": "",
+        "LLM_BASE_URL": "https://api.openai.com/v1",
+        "LLM_TIMEOUT_MS": "60000",
+        "ALLOWED_ORIGINS": ""
+      },
+      "secrets": { "required": ["LLM_API_KEY", "MCP_API_TOKEN"] }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Visual Learning · MCP test host</title></head>
+<body>
+  <header><strong>Visual Learning</strong><span>MCP Apps test host</span><a href="/">Standalone preview</a></header>
+  <form id="lesson-form"><label>Learning topic <input name="topic" value="JavaScript event loop" maxlength="200" required /></label><label>Level <select name="level"><option>beginner</option><option>intermediate</option><option>advanced</option></select></label><button>Teach visually</button></form>
+  <p id="status" role="status">Connecting to the MCP server…</p>
+  <div id="view"></div>
+  <script type="module" src="/src/host/main.ts"></script>
+</body>
+</html>

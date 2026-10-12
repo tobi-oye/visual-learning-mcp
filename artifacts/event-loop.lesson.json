@@ -1,0 +1,211 @@
+{
+  "topic": "JavaScript event loop",
+  "title": "The JavaScript event loop",
+  "level": "beginner",
+  "summary": "A browser JavaScript lesson: run synchronous code, drain microtasks, then run another task. Follow all five steps on this canvas.",
+  "steps": [
+    {
+      "id": "components",
+      "title": "Meet the four components",
+      "explanation": "The stack runs JavaScript. Browser APIs handle timers and events. Promise callbacks wait as microtasks; timer callbacks wait as tasks.",
+      "takeaway": "The browser schedules callbacks; the call stack executes them.",
+      "visual": {
+        "kind": "cards",
+        "nodes": [
+          {
+            "id": "stack",
+            "label": "Call stack",
+            "detail": "Runs the current JavaScript function calls.",
+            "tone": "blue"
+          },
+          {
+            "id": "apis",
+            "label": "Browser APIs",
+            "detail": "Timers and events are managed by the browser.",
+            "tone": "purple"
+          },
+          {
+            "id": "micro",
+            "label": "Microtask queue",
+            "detail": "Promise reactions and queueMicrotask callbacks.",
+            "tone": "green"
+          },
+          {
+            "id": "task",
+            "label": "Task queues",
+            "detail": "Timer callbacks and events wait for a turn.",
+            "tone": "orange"
+          }
+        ],
+        "edges": []
+      },
+      "code": null
+    },
+    {
+      "id": "synchronous",
+      "title": "Synchronous code runs first",
+      "explanation": "JavaScript executes the current script in order. A function call adds a stack frame, and returning removes it. Scheduled callbacks cannot interrupt this synchronous work.",
+      "takeaway": "Finish the current synchronous work before running queued callbacks.",
+      "visual": {
+        "kind": "sequence",
+        "nodes": [
+          {
+            "id": "start",
+            "label": "Start script",
+            "detail": "The browser begins executing the script.",
+            "tone": "blue"
+          },
+          {
+            "id": "call",
+            "label": "Call a function",
+            "detail": "Push a frame; execute its body.",
+            "tone": "purple"
+          },
+          {
+            "id": "return",
+            "label": "Return",
+            "detail": "Pop the frame and continue the script.",
+            "tone": "green"
+          }
+        ],
+        "edges": [
+          {
+            "from": "start",
+            "to": "call",
+            "label": ""
+          },
+          {
+            "from": "call",
+            "to": "return",
+            "label": ""
+          }
+        ]
+      },
+      "code": null
+    },
+    {
+      "id": "asynchronous",
+      "title": "Schedule the asynchronous work",
+      "explanation": "setTimeout asks the browser to schedule a callback later. A .then callback on an already resolved Promise goes into the microtask queue. The script keeps running.",
+      "takeaway": "A zero-millisecond timeout means eligible later, never immediately.",
+      "visual": {
+        "kind": "comparison",
+        "nodes": [
+          {
+            "id": "timer",
+            "label": "setTimeout(callback, 0)",
+            "detail": "Timer becomes eligible; its callback waits as a task.",
+            "tone": "orange"
+          },
+          {
+            "id": "promise",
+            "label": "Promise.resolve().then(...)",
+            "detail": "The reaction waits as a microtask.",
+            "tone": "green"
+          }
+        ],
+        "edges": []
+      },
+      "code": null
+    },
+    {
+      "id": "event-loop",
+      "title": "Microtasks have priority",
+      "explanation": "After the current script finishes, the browser drains the microtask queue, including newly added microtasks. It can then run another task. Rendering may happen between turns; it is not guaranteed after each task.",
+      "takeaway": "In this example, the Promise callback runs before the timer callback.",
+      "visual": {
+        "kind": "sequence",
+        "nodes": [
+          {
+            "id": "finish",
+            "label": "Finish current script",
+            "detail": "Synchronous work completes and the stack is empty.",
+            "tone": "blue"
+          },
+          {
+            "id": "drain",
+            "label": "Drain microtasks",
+            "detail": "Run queued microtasks until the queue is empty.",
+            "tone": "green"
+          },
+          {
+            "id": "next-task",
+            "label": "Run another task",
+            "detail": "An eligible timer callback can now get a turn.",
+            "tone": "orange"
+          }
+        ],
+        "edges": [
+          {
+            "from": "finish",
+            "to": "drain",
+            "label": "checkpoint"
+          },
+          {
+            "from": "drain",
+            "to": "next-task",
+            "label": "next turn"
+          }
+        ]
+      },
+      "code": null
+    },
+    {
+      "id": "example",
+      "title": "Predict the output: A D C B",
+      "explanation": "A and D are synchronous. C is a Promise microtask, so it runs after the script. B is a timer task, so it runs after the microtasks. Read the code and trace the four logs below.",
+      "takeaway": "Output: A, D, C, B. Scheduling order alone does not determine callback order.",
+      "visual": {
+        "kind": "sequence",
+        "nodes": [
+          {
+            "id": "a",
+            "label": "A",
+            "detail": "First synchronous log.",
+            "tone": "blue"
+          },
+          {
+            "id": "d",
+            "label": "D",
+            "detail": "Last synchronous log.",
+            "tone": "blue"
+          },
+          {
+            "id": "c",
+            "label": "C",
+            "detail": "Promise microtask.",
+            "tone": "green"
+          },
+          {
+            "id": "b",
+            "label": "B",
+            "detail": "Timer task.",
+            "tone": "orange"
+          }
+        ],
+        "edges": [
+          {
+            "from": "a",
+            "to": "d",
+            "label": ""
+          },
+          {
+            "from": "d",
+            "to": "c",
+            "label": ""
+          },
+          {
+            "from": "c",
+            "to": "b",
+            "label": ""
+          }
+        ]
+      },
+      "code": {
+        "language": "javascript",
+        "source": "console.log('A');\nsetTimeout(() => {\n  console.log('B');\n}, 0);\nPromise.resolve().then(\n  () => console.log('C')\n);\nconsole.log('D');",
+        "output": "A\nD\nC\nB"
+      }
+    }
+  ]
+}
