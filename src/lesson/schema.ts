@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 export const levelSchema = z.enum(["beginner", "intermediate", "advanced"]);
-export const teachInputSchema = z.object({
-  topic: z.string().trim().min(1).max(200),
-  level: levelSchema.default("beginner"),
-});
+const topicSchema = z.string().trim().min(1).max(200);
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(40),
@@ -61,7 +58,31 @@ export const lessonSchema = z.object({
   }
 });
 
+export const lessonGuideInputSchema = z.object({
+  topic: topicSchema,
+  level: levelSchema.default("beginner"),
+});
+
+export const teachInputSchema = z.object({
+  topic: topicSchema.describe("The user's learning topic. Copy this into lesson.topic."),
+  level: levelSchema.optional().describe("Defaults to the supplied lesson's level, or beginner for topic-only demo requests."),
+  lesson: lessonSchema.optional().describe("For arbitrary topics, the calling host assistant writes this complete lesson using its own reasoning. No server API key or MCP sampling is needed. Include 3–6 steps with 2–4 visual nodes each; use unique step IDs and unique node IDs within each step. Cards/comparison have empty edges; flow/sequence edges connect adjacent nodes in array reading order only. The server draws the lesson in Excalidraw at runtime. Omit only to use the event-loop or photosynthesis demo."),
+}).superRefine((request, ctx) => {
+  if (!request.lesson) return;
+  if (request.lesson.topic.trim().toLowerCase() !== request.topic.toLowerCase()) {
+    ctx.addIssue({ code: "custom", path: ["lesson", "topic"], message: "Lesson topic must match the requested topic" });
+  }
+  if (request.level && request.lesson.level !== request.level) {
+    ctx.addIssue({ code: "custom", path: ["lesson", "level"], message: "Lesson level must match the requested level" });
+  }
+});
+
 export type Lesson = z.infer<typeof lessonSchema>;
 export type LessonStep = Lesson["steps"][number];
 export type TeachInput = z.infer<typeof teachInputSchema>;
 export type Level = z.infer<typeof levelSchema>;
+
+export function resolveTeachInput(input: TeachInput): TeachInput & { level: Level } {
+  const request = teachInputSchema.parse(input);
+  return { ...request, level: request.level ?? request.lesson?.level ?? "beginner" };
+}

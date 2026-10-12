@@ -1,10 +1,12 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { createPlannerFromEnv } from "./lesson/planner.js";
+import { createPlannerFromEnv, NeedsLessonError, resolvePlannerMode } from "./lesson/planner.js";
 import { teachInputSchema } from "./lesson/schema.js";
 import { createServer, LessonService } from "./server.js";
 
-const MAX_MCP_BODY_BYTES = 64 * 1024;
-const MAX_DEMO_BODY_BYTES = 16 * 1024;
+// A full six-step lesson can exceed 16 KiB; leave room for UTF-8 content
+// while bounding both endpoints before parsing.
+const MAX_MCP_BODY_BYTES = 128 * 1024;
+const MAX_DEMO_BODY_BYTES = MAX_MCP_BODY_BYTES;
 const MAX_APP_BYTES = 20 * 1024 * 1024;
 
 class BodyTooLarge extends Error {}
@@ -74,7 +76,7 @@ async function handleApi(request: Request, env: Env, pathname: string): Promise<
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (request.method !== "POST") return jsonError("Use POST for this stateless endpoint.", 405, { ...Object.fromEntries(cors), Allow: "POST, OPTIONS" });
 
-  const mode = env.LESSON_PLANNER === "llm" ? "llm" : "fixture";
+  const mode = resolvePlannerMode({ LESSON_PLANNER: env.LESSON_PLANNER });
   if (mode === "llm" && !env.MCP_API_TOKEN) {
     return withHeaders(jsonError("LLM mode requires the MCP_API_TOKEN secret.", 503), cors);
   }
@@ -103,9 +105,12 @@ async function handleApi(request: Request, env: Env, pathname: string): Promise<
         return withHeaders(jsonError(error instanceof BodyTooLarge ? error.message : "The request body is not valid JSON.", error instanceof BodyTooLarge ? 413 : 400), cors);
       }
       const parsed = teachInputSchema.safeParse(input);
-      if (!parsed.success) return withHeaders(jsonError("Provide a topic of 1–200 characters and a valid difficulty level.", 400), cors);
+      if (!parsed.success) return withHeaders(Response.json({ error: "Provide a valid topic, difficulty level, and lesson matching the tool schema.", issues: parsed.error.issues }, { status: 400 }), cors);
       try { return withHeaders(Response.json(await service.teach(parsed.data)), cors); }
-      catch (error) { return withHeaders(jsonError(error instanceof Error ? error.message : "Lesson generation failed.", 422), cors); }
+      catch (error) {
+        if (error instanceof NeedsLessonError) return withHeaders(Response.json({ status: "needs_lesson", topic: error.guide.topic, level: error.guide.level, guide: error.guide }), cors);
+        return withHeaders(jsonError(error instanceof Error ? error.message : "Lesson generation failed.", 422), cors);
+      }
     }
 
     const server = createServer(service, async () => {

@@ -1,5 +1,6 @@
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { Lesson } from "../lesson/schema.js";
+import type { LessonGuide, LessonPlannerMode } from "../lesson/planner.js";
 
 export interface SceneDocument {
   type: "excalidraw";
@@ -24,6 +25,13 @@ export interface VisualLesson {
   lesson: Lesson;
   scene: SceneDocument;
   sections: SectionBounds[];
-  planner: "fixture" | "llm";
+  planner: LessonPlannerMode;
   resourceUri?: string;
+}
+
+export interface NeedsLessonResult {
+  status: "needs_lesson";
+  topic: string;
+  level: Lesson["level"];
+  guide: LessonGuide;
 }

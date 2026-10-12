@@ -1,14 +1,47 @@
 import { z } from "zod";
 import { eventLoopFixture, photosynthesisFixture } from "./fixtures.js";
-import { lessonSchema, teachInputSchema, type Lesson, type TeachInput } from "./schema.js";
+import { lessonGuideInputSchema, lessonSchema, resolveTeachInput, type Lesson, type Level, type TeachInput } from "./schema.js";
+
+export type LessonPlannerMode = "host" | "fixture" | "llm";
+const lessonJsonSchema = z.toJSONSchema(lessonSchema);
 
 export interface LessonPlanner {
   plan(input: TeachInput): Promise<Lesson>;
 }
 
+export interface LessonGuide {
+  topic: string;
+  level: Level;
+  instructions: string[];
+  lessonSchema: typeof lessonJsonSchema;
+}
+
+export function createLessonGuide(input: { topic: string; level?: Level }): LessonGuide {
+  const request = lessonGuideInputSchema.parse(input);
+  return {
+    ...request,
+    instructions: [
+      "Use your own reasoning as the calling host assistant to write a complete lesson matching lessonSchema. Do not ask the user for another prompt or an API key.",
+      ...systemPrompt.split("\n"),
+      `Then call teach_visually with topic ${JSON.stringify(request.topic)}, level ${JSON.stringify(request.level)}, and the complete lesson object. The server converts every visual node and relationship into an editable Excalidraw scene at runtime.`,
+    ],
+    lessonSchema: lessonJsonSchema,
+  };
+}
+
+export class NeedsLessonError extends Error {
+  readonly guide: LessonGuide;
+  constructor(input: { topic: string; level?: Level }) {
+    super("This topic needs a lesson written by the calling host assistant. Use get_lesson_guide, then call teach_visually again with the complete lesson. No server model or API key is required.");
+    this.name = "NeedsLessonError";
+    this.guide = createLessonGuide(input);
+  }
+}
+
 export class FixturePlanner implements LessonPlanner {
   async plan(input: TeachInput): Promise<Lesson> {
-    const request = teachInputSchema.parse(input);
+    const request = resolveTeachInput(input);
+    if (request.lesson) return { ...request.lesson, topic: request.topic };
     const topic = request.topic.toLowerCase().replace(/[?.!]+$/, "")
       .replace(/^(?:explain|teach me about|teach me|teach|how does|what is)\s+/, "")
       .replace(/^how\s+/, "").replace(/^the\s+/, "").replace(/\s+works?$/, "");
@@ -16,9 +49,13 @@ export class FixturePlanner implements LessonPlanner {
     if (/^(?:(?:javascript|js|browser|browser javascript|javascript browser)\s+)?event[ -]loop$/.test(topic)) {
       return eventLoopFixture(request.topic, request.level);
     }
-    throw new Error("Fixture mode supports the browser JavaScript event loop and photosynthesis. For other topics, set LESSON_PLANNER=llm, LLM_MODEL, and LLM_API_KEY.");
+    throw new NeedsLessonError(request);
   }
 }
+
+// Hosts such as ChatGPT and Codex supply the reasoning; demos remain available
+// for a topic-only call from Inspector or the standalone preview.
+export class HostPlanner extends FixturePlanner {}
 
 const completionSchema = z.object({
   choices: z.array(z.object({
@@ -41,11 +78,12 @@ function providerSchema(value: unknown): unknown {
     .map(([key, child]) => [key, providerSchema(child)]));
 }
 
-const outputSchema = providerSchema(z.toJSONSchema(lessonSchema));
+const outputSchema = providerSchema(lessonJsonSchema);
 const systemPrompt = [
   "You are a careful visual teacher. Return only a lesson that matches the supplied JSON Schema.",
   "Copy the requested topic and level exactly. Teach the requested topic accurately in 3-6 logical steps.",
   "Each step needs a short title, explanation, takeaway, and 2-4 concise visual nodes.",
+  "Do not number step titles; the canvas adds numbered chapter badges automatically.",
   "Use cards for separate components, comparison for alternatives, and flow or sequence for ordered stages.",
   "Minimize arrows: cards and comparison have empty edges. Other edges connect adjacent nodes in array order only, from node i to node i+1.",
   "All step IDs are unique; node IDs are unique within each step. No cycles, back edges, or cross-section edges.",
@@ -60,7 +98,8 @@ class LlmPlanner implements LessonPlanner {
   constructor(private readonly config: { model: string; apiKey: string; endpoint: string; timeoutMs: number }) {}
 
   async plan(input: TeachInput): Promise<Lesson> {
-    const request = teachInputSchema.parse(input);
+    const request = resolveTeachInput(input);
+    if (request.lesson) return { ...request.lesson, topic: request.topic };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
@@ -127,10 +166,16 @@ class LlmPlanner implements LessonPlanner {
   }
 }
 
+export function resolvePlannerMode(env: Record<string, string | undefined> = process.env): LessonPlannerMode {
+  const mode = env.LESSON_PLANNER?.trim() || "host";
+  if (mode !== "host" && mode !== "fixture" && mode !== "llm") throw new Error("LESSON_PLANNER must be host, fixture, or llm.");
+  return mode;
+}
+
 export function createPlannerFromEnv(env: Record<string, string | undefined> = process.env): LessonPlanner {
-  const mode = env.LESSON_PLANNER?.trim() || "fixture";
+  const mode = resolvePlannerMode(env);
+  if (mode === "host") return new HostPlanner();
   if (mode === "fixture") return new FixturePlanner();
-  if (mode !== "llm") throw new Error("LESSON_PLANNER must be fixture or llm.");
   const model = env.LLM_MODEL?.trim();
   const apiKey = env.LLM_API_KEY?.trim();
   if (!model || !apiKey) throw new Error("LLM planner requires LLM_MODEL and LLM_API_KEY.");

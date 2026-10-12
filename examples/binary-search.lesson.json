@@ -1,0 +1,76 @@
+{
+  "topic": "Binary search",
+  "title": "Binary search: keep the half that can contain the answer",
+  "level": "beginner",
+  "summary": "Find 13 in a sorted list by comparing the middle value and narrowing the search interval. The ordering lets us safely discard half the remaining values.",
+  "steps": [
+    {
+      "id": "ordered",
+      "title": "Start with a sorted list",
+      "explanation": "Our list is [2, 5, 8, 13, 21, 34, 55]. We want 13. Binary search requires an ordered list so a comparison tells us which side could contain the target.",
+      "takeaway": "The sorted order is the reason we can discard a whole side.",
+      "visual": {
+        "kind": "cards",
+        "nodes": [
+          { "id": "list", "label": "Sorted values", "detail": "2, 5, 8, 13, 21, 34, 55", "tone": "blue" },
+          { "id": "target", "label": "Target: 13", "detail": "Search indices 0 through 6, including both ends.", "tone": "purple" }
+        ],
+        "edges": []
+      },
+      "code": null
+    },
+    {
+      "id": "compare",
+      "title": "Check the middle value",
+      "explanation": "For seven values, the middle index is 3. Its value is 13, so this example succeeds immediately. A match ends the search.",
+      "takeaway": "Compare the target with the value at the middle index.",
+      "visual": {
+        "kind": "flow",
+        "nodes": [
+          { "id": "bounds", "label": "low = 0, high = 6", "detail": "The search interval covers the whole list.", "tone": "blue" },
+          { "id": "mid", "label": "mid = 3", "detail": "floor((0 + 6) / 2) = 3; values[3] = 13.", "tone": "orange" },
+          { "id": "found", "label": "Found 13", "detail": "Return index 3 because the middle value matches.", "tone": "green" }
+        ],
+        "edges": [
+          { "from": "bounds", "to": "mid", "label": "choose middle" },
+          { "from": "mid", "to": "found", "label": "13 = 13" }
+        ]
+      },
+      "code": null
+    },
+    {
+      "id": "narrow",
+      "title": "If it is not a match, keep one half",
+      "explanation": "Now search for 21 instead. At index 3, 13 is smaller than 21: keep indices 4–6. Their middle is index 5, value 34; keep index 4. It contains 21.",
+      "takeaway": "Exclude the checked middle and the side that cannot hold the target.",
+      "visual": {
+        "kind": "sequence",
+        "nodes": [
+          { "id": "first", "label": "13 < 21", "detail": "Move low to 4; keep [21, 34, 55].", "tone": "blue" },
+          { "id": "second", "label": "34 > 21", "detail": "Move high to 4; keep only [21].", "tone": "orange" },
+          { "id": "last", "label": "21 = 21", "detail": "Return index 4.", "tone": "green" }
+        ],
+        "edges": [
+          { "from": "first", "to": "second", "label": "check middle" },
+          { "from": "second", "to": "last", "label": "check remaining" }
+        ]
+      },
+      "code": null
+    },
+    {
+      "id": "stop",
+      "title": "Stop when there is no interval left",
+      "explanation": "For a missing target such as 20, the bounds eventually cross: low becomes greater than high. Return 'not found'. Each comparison roughly halves the interval, giving logarithmic comparisons.",
+      "takeaway": "Binary search needs sorted data and uses O(log n) comparisons.",
+      "visual": {
+        "kind": "comparison",
+        "nodes": [
+          { "id": "match", "label": "Middle matches target", "detail": "Return its index; a duplicate value may have other matching indices.", "tone": "green" },
+          { "id": "empty", "label": "low > high", "detail": "No values remain; the target is absent.", "tone": "purple" }
+        ],
+        "edges": []
+      },
+      "code": null
+    }
+  ]
+}

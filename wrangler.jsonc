@@ -12,7 +12,7 @@
   },
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
-    "LESSON_PLANNER": "fixture",
+    "LESSON_PLANNER": "host",
     "LLM_MODEL": "",
     "LLM_BASE_URL": "https://api.openai.com/v1",
     "LLM_TIMEOUT_MS": "60000",

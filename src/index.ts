@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { createPlannerFromEnv } from "./lesson/planner.js";
+import { createPlannerFromEnv, NeedsLessonError, resolvePlannerMode } from "./lesson/planner.js";
 import { teachInputSchema } from "./lesson/schema.js";
 import { createServer, LessonService } from "./server.js";
 
@@ -12,7 +12,7 @@ if (existsSync(".env")) process.loadEnvFile(".env");
 const compiled = import.meta.url.endsWith(".js");
 const uiPath = fileURLToPath(new URL(compiled ? "../ui/mcp-app.html" : "../dist/ui/mcp-app.html", import.meta.url));
 const hostPath = fileURLToPath(new URL(compiled ? "../host/host.html" : "../dist/host/host.html", import.meta.url));
-const service = new LessonService(createPlannerFromEnv(), process.env.LESSON_PLANNER === "llm" ? "llm" : "fixture");
+const service = new LessonService(createPlannerFromEnv(), resolvePlannerMode());
 const loadUi = () => readFile(uiPath, "utf8");
 
 if (!existsSync(uiPath)) throw new Error("MCP App bundle is missing. Run npm run build first.");
@@ -47,9 +47,12 @@ if (process.argv.includes("--http")) {
   app.get("/host", (_req, res) => res.sendFile(hostPath));
   app.post("/api/teach", async (req, res) => {
     const parsed = teachInputSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: "Provide a topic of 1–200 characters and a valid difficulty level." }); return; }
+    if (!parsed.success) { res.status(400).json({ error: "Provide a valid topic, difficulty level, and lesson matching the tool schema.", issues: parsed.error.issues }); return; }
     try { res.json(await service.teach(parsed.data)); }
-    catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "Lesson generation failed." }); }
+    catch (error) {
+      if (error instanceof NeedsLessonError) { res.json({ status: "needs_lesson", topic: error.guide.topic, level: error.guide.level, guide: error.guide }); return; }
+      res.status(422).json({ error: error instanceof Error ? error.message : "Lesson generation failed." });
+    }
   });
   app.get("/health", (_req, res) => res.json({ ok: true, planner: service.mode }));
   const listener = app.listen(port, "127.0.0.1", () => console.error(`Visual Learning MCP: http://localhost:${port}/mcp · Demo: http://localhost:${port}/ · Test host: http://localhost:${port}/host`));

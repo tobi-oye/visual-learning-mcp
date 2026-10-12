@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -10,7 +11,7 @@ import type { SectionBounds } from "../src/render/types.js";
 const endpoint = new URL(process.argv[2] ?? "http://localhost:8787/mcp");
 const health = await fetch(new URL("/health", endpoint));
 const configuration = await health.json() as { planner?: string };
-assert.equal(configuration.planner, "fixture", "This smoke check only runs against fixture mode; it never makes paid LLM calls.");
+assert.ok(configuration.planner === "host" || configuration.planner === "fixture", "This smoke check runs without paid server LLM calls.");
 const client = new Client({ name: "visual-learning-worker-smoke", version: "0.1.0" });
 try {
   await client.connect(new StreamableHTTPClientTransport(endpoint));
@@ -42,6 +43,11 @@ try {
     assert.ok(section.elementIds.length > 0 && section.elementIds.every(id => elementIds.has(id)));
   });
   assert.equal((await client.listResourceTemplates()).resourceTemplates.length, 0);
+  const supplied = JSON.parse(await readFile(new URL("../examples/binary-search.lesson.json", import.meta.url), "utf8"));
+  const runtime = CallToolResultSchema.parse(await client.callTool({ name: "teach_visually", arguments: { topic: supplied.topic, lesson: supplied } }));
+  assert.ok(!runtime.isError, JSON.stringify(runtime.content));
+  assert.equal(runtime.structuredContent?.planner, "host");
+  assert.equal((runtime.structuredContent?.sections as SectionBounds[]).length, supplied.steps.length);
   const app = await client.readResource({ uri: APP_URI });
   const resource = app.contents[0];
   assert.equal(resource.mimeType, "text/html;profile=mcp-app");
@@ -52,7 +58,7 @@ try {
   assert.equal(invalid.isError, true);
   const forbidden = await fetch(endpoint, { method: "POST", headers: { Origin: "https://untrusted.example" } });
   assert.equal(forbidden.status, 403);
-  const oversized = await fetch(new URL("/api/teach", endpoint), { method: "POST", headers: { "Content-Type": "application/json" }, body: "x".repeat(16 * 1024 + 1) });
+  const oversized = await fetch(new URL("/api/teach", endpoint), { method: "POST", headers: { "Content-Type": "application/json" }, body: "x".repeat(128 * 1024 + 1) });
   assert.equal(oversized.status, 413);
   console.log(`Worker MCP smoke passed: tool discovery, Apps metadata, scene (${scene.elements.length} elements), five sections, stateless results, embedded UI/fonts, invalid input, Origin checks, and request limits (${endpoint.origin}).`);
 } finally { await client.close(); }

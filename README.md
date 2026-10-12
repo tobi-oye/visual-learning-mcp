@@ -2,20 +2,25 @@
 
 Turn a learning topic into a complete visual lesson on one editable Excalidraw canvas. Each lesson has 3–6 numbered sections with a title, an illustration, a short explanation, and a takeaway. Sections follow a top-to-bottom reading order; navigation moves around the same scene.
 
+ChatGPT or Codex plans the lesson with its own model and sends that plan to the MCP server. The server validates it and draws native Excalidraw elements at runtime. **No separate `LLM_MODEL` or `LLM_API_KEY` is needed for this host-driven flow.**
+
 The primary MCP tool is:
 
 ```ts
 teach_visually({
-  topic: "How the JavaScript event loop works",
+  topic: "How binary search works",
   level: "beginner", // optional: beginner | intermediate | advanced
+  lesson: assistantAuthoredLesson, // validated against the tool's lesson schema
 })
 ```
+
+`get_lesson_guide({ topic, level? })` supplies the lesson JSON Schema and planning instructions. The assistant can use it, author a lesson, and call `teach_visually` in the same conversation. The advertised `teach_visually` input schema also contains the complete lesson shape, so the assistant can submit a plan directly.
 
 The server uses TypeScript, the official MCP SDK, MCP Apps, React, Excalidraw, and Zod. An MCP Apps-capable host can display the editable lesson inside its interface. A standard MCP client can still receive the structured scene and read the generated artifact.
 
 ## Run locally
 
-Requires Node.js **22.12 or newer** and npm.
+Requires Node.js **22.12 or newer** and npm. MCP Inspector requires **22.19 or newer**.
 
 ```sh
 npm install
@@ -45,17 +50,21 @@ The bundled `/host` connects with the official SDK's HTTP client, discovers the 
 
 `npm start` uses stdio. It waits for an MCP client to communicate with it, so it does not open a website.
 
-## Planner configuration
+## Lesson planning
 
-The default `LESSON_PLANNER=fixture` provides deterministic JavaScript event-loop and photosynthesis lessons without API keys. Other topics require the LLM planner; the fixture does not invent a generic lesson for an unsupported topic.
+The default `LESSON_PLANNER=host` uses structured lessons supplied by the connected assistant. It also accepts topic-only calls for the JavaScript event-loop and photosynthesis fixtures, which remain useful for demos. `LESSON_PLANNER=fixture` keeps the same deterministic demos; a supplied valid lesson is accepted in every mode.
 
-The LLM planner supports arbitrary topics through a configurable provider endpoint. The Node server automatically loads `.env` from its **current working directory** when that file exists. Copy `.env.example` to `.env` for local configuration, or set these environment variables in the server process:
+For any other topic, a topic-only call in host or fixture mode returns `status: "needs_lesson"` with planning instructions and the lesson schema. The assistant should author the requested lesson and call `teach_visually` again with `lesson`; it does not need to ask the user for a provider key. Inspector and the bundled browser test host have no model of their own, so arbitrary topics require pasting a structured lesson into their tool input.
+
+A lesson contains 3–6 steps, each with an explanation, takeaway, and a small visual made of cards, flow, comparison, or sequence nodes. The server computes positions, labels, relationships, and scene elements for each call. Excalidraw renders these as editable shapes and text on one continuous canvas. The server does not access the host's model internally or depend on MCP sampling.
+
+`LESSON_PLANNER=llm` is an optional alternative for standalone applications that want the server to generate content from a topic without an assistant host. Only this mode needs provider credentials. The Node server loads `.env` from its **current working directory** when it exists; copy `.env.example` to `.env` or set environment variables in the launched server process.
 
 | Variable | Meaning |
 | --- | --- |
-| `LESSON_PLANNER` | `fixture` (default) or `llm`. |
-| `LLM_API_KEY` | Required in `llm` mode. |
-| `LLM_MODEL` | Required in `llm` mode; choose a model available from your provider. |
+| `LESSON_PLANNER` | `host` (default), `fixture`, or `llm`. |
+| `LLM_API_KEY` | Required only in optional `llm` mode. |
+| `LLM_MODEL` | Required only in `llm` mode; choose a model available from your provider. |
 | `LLM_BASE_URL` | Optional API base URL; default `https://api.openai.com/v1`. |
 | `LLM_TIMEOUT_MS` | Request timeout in milliseconds; default `60000`. |
 
@@ -68,35 +77,67 @@ export LLM_MODEL="your-provider-model"
 npm run serve
 ```
 
-The planner requests structured lesson data, validates it with Zod, and hands it to the same layout engine used by fixtures. Provider responses must satisfy the schema. Local fixture and protocol checks do not establish that a particular remote model or provider has been tested.
+The optional provider planner validates returned lesson data with Zod and uses the same layout engine. Local checks do not establish that a particular remote model or provider has been tested.
 
 ## Connect an MCP client
 
-For clients that use the `mcpServers` configuration format, add an entry such as:
+For Codex, add a stdio server to `~/.codex/config.toml` (or a project-scoped `.codex/config.toml`):
+
+```toml
+[mcp_servers.visual_learning]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/visual-learning-mcp/dist/server/index.js", "--stdio"]
+```
+
+Use a Node executable that satisfies the version requirement and the absolute path to this built checkout. No planner environment variables are needed. Codex also accepts a Streamable HTTP server:
+
+```toml
+[mcp_servers.visual_learning]
+url = "http://localhost:3001/mcp"
+```
+
+Run `npm run serve` for the HTTP configuration. Follow the [official OpenAI documentation for Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) for the configuration supported by your host.
+
+For clients that use the `mcpServers` JSON configuration format:
 
 ```json
 {
   "mcpServers": {
     "visual-learning": {
       "command": "node",
-      "args": ["/absolute/path/to/visual-learning-mcp/dist/server/index.js", "--stdio"],
-      "env": {
-        "LESSON_PLANNER": "fixture"
-      }
+      "args": ["/absolute/path/to/visual-learning-mcp/dist/server/index.js", "--stdio"]
     }
   }
 }
 ```
 
-Replace the example path with the **absolute path** to your built checkout. If the client cannot find Node, use the absolute path to the Node executable too. To use the LLM planner, supply its environment variables in that client entry: the client's working directory may differ from your checkout, so its launched process may not find the checkout's `.env`. Configuration location and syntax depend on the client.
+Replace the example path with the absolute path to your built checkout. If the client cannot find Node, use the absolute path to the Node executable too.
 
 For a client supporting Streamable HTTP, start `npm run serve` and configure a connection to `http://localhost:3001/mcp`. The client must run on the same machine for this loopback address to work. Transport support and MCP Apps support are separate capabilities: a client may connect successfully without rendering inline apps.
 
-Ask the assistant:
+ChatGPT's cloud connection needs a publicly reachable HTTPS MCP endpoint, such as the deployed Cloudflare Worker's `/mcp` URL. ChatGPT implements MCP Apps and can render this server's UI resource. Connect the remote endpoint using the [official MCP server and UI quickstart](https://developers.openai.com/plugins/build/app-quickstart). Inline display in other clients depends on their MCP Apps support; headless Codex can still generate and consume the editable scene JSON.
+
+Ask the connected assistant:
+
+> Teach me binary search visually at beginner level. Use get_lesson_guide if needed, create the lesson yourself, and send it to teach_visually.
+
+For the deterministic demo:
 
 > Use teach_visually to explain how the JavaScript event loop works at beginner level.
 
 The browser event-loop demonstration covers components, synchronous execution, asynchronous scheduling, microtask priority, and a practical code example with output. It describes browser behavior; Node.js has additional scheduling details.
+
+### Test in MCP Inspector
+
+Keep `npm run serve` running, then start Inspector in another terminal:
+
+```sh
+npm run inspect
+```
+
+In Inspector's **Apps** tab, select `teach_visually`, enter an event-loop or photosynthesis topic, and open the app. Inspector 2.10.1 renders the MCP App with its editable Excalidraw canvas. For an arbitrary topic, call `get_lesson_guide` to inspect the schema, then include a complete `lesson` object in the `teach_visually` arguments. Inspector is a protocol and UI tester; it does not author that lesson for you.
+
+For a ready manual example, use **Edit as JSON** with `{ "topic": "Binary search", "lesson": … }`, placing the contents of [`examples/binary-search.lesson.json`](examples/binary-search.lesson.json) in `lesson`. The local `/host` also accepts this lesson in its collapsed prepared-lesson input.
 
 ### Check inline rendering with the official reference host
 
@@ -126,7 +167,7 @@ The Cloudflare Worker is stateless. It embeds the full scene in the tool result 
 
 ## Cloudflare hosting
 
-The project also includes a Cloudflare Worker using the official SDK's Streamable HTTP transport and Workers Static Assets for the app bundle. See [Cloudflare setup](docs/cloudflare.md) for configuration, credentials, and the separate fixture and LLM environments.
+The project also includes a Cloudflare Worker using the official SDK's Streamable HTTP transport and Workers Static Assets for the app bundle. Its default host mode accepts assistant-authored lessons without provider credentials. See [Cloudflare setup](docs/cloudflare.md) for deployment and the optional standalone LLM environment.
 
 ```sh
 npm run worker:dev    # build and run the Worker locally
@@ -140,7 +181,8 @@ Deployment requires a current Cloudflare login. A live deployment has not been v
 
 ```text
 topic + level
-  → lesson planner (fixture or LLM)
+  → connected assistant authors a structured lesson
+    (or topic-only demo fixture / optional server-side LLM)
   → validated intermediate lesson
   → visual plan (nodes, relationships, explanations)
   → deterministic section layout
@@ -157,7 +199,7 @@ The source is organized around that pipeline:
 | Location | Responsibility |
 | --- | --- |
 | `src/lesson/schema.ts` | Topic input and structured lesson validation. |
-| `src/lesson/planner.ts`, `fixtures.ts` | Configurable LLM planner and deterministic lessons. |
+| `src/lesson/planner.ts`, `fixtures.ts` | Host planning guide, deterministic demos, and optional provider planner. |
 | `src/render/layout.ts`, `types.ts` | Scene geometry, section bounds, and native scene types. |
 | `src/server.ts` | Shared MCP tool and resource registration. |
 | `src/index.ts`, `src/worker.ts` | Node transports and stateless Cloudflare transport. |
@@ -174,6 +216,8 @@ The source is organized around that pipeline:
 - `/host`: the actual SDK HTTP client → AppBridge → sandboxed MCP App path.
 - Browser verification: check section navigation, editing, readable labels, spacing, and exporting the edited scene.
 
-Nine automated tests, typechecks, Node stdio smoke, Worker local MCP smoke, and a Wrangler deployment dry run have passed. The HTTP host delivered the event-loop scene through the real MCP protocol; all five sections were inspected visually. A canvas annotation was edited and verified in the exported scene JSON. In-app-browser download completion could not be confirmed, so the copyable scene export provides a verified fallback. Live paid LLM generation, Claude integration, and a public Cloudflare deployment have not been verified.
+The event-loop scene has rendered through the real MCP protocol in the bundled HTTP host and Inspector's Apps tab. All five sections were inspected visually, and an edited annotation was verified in copyable scene JSON. In-app-browser download completion could not be confirmed, so the copyable export provides a verified fallback.
 
-The MVP intentionally focuses on a complete first lesson. It has no accounts, quizzes, databases, or adaptive follow-up workflow. Remote LLM calls and each third-party assistant require separate verification with the intended configuration.
+An actual Codex CLI run used its existing account authentication to call `get_lesson_guide`, author a new TCP handshake lesson, and call `teach_visually`. The server returned three sections and 50 native Excalidraw elements in host mode without server model credentials. Inspector rendered that same host-authored lesson in its Apps tab. The stdio and local Worker smoke checks also rendered the supplied binary-search lesson. A public Cloudflare deployment and live inline rendering inside ChatGPT or Codex have not been verified.
+
+The MVP focuses on a complete first lesson. It has no accounts, quizzes, databases, or adaptive follow-up workflow. Remote provider calls and each assistant host need verification with the intended configuration.

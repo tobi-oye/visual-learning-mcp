@@ -17,8 +17,9 @@ type LessonResult = {
   lesson: { title: string; topic: string; level?: string; summary?: string };
   scene: SceneDocument;
   sections: SectionBounds[];
-  planner: "fixture" | "llm";
+  planner: "host" | "fixture" | "llm";
 };
+type PlanningRequest = { status: "needs_lesson"; topic: string; level: string };
 type HostContext = NonNullable<ReturnType<App["getHostContext"]>>;
 const standalone = window.parent === window;
 
@@ -26,14 +27,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseLessonResult(value: unknown): LessonResult {
+function parseLessonResult(value: unknown): LessonResult | PlanningRequest {
   if (!value || typeof value !== "object") throw new Error("The server did not return a visual lesson.");
   const envelope = value as Record<string, unknown>;
   if (envelope.isError) {
     const content = envelope.content as { type?: string; text?: string }[] | undefined;
     throw new Error(content?.find((item) => item.type === "text")?.text || "The lesson could not be generated.");
   }
-  const result = (envelope.structuredContent ?? envelope) as Partial<LessonResult>;
+  const result = (envelope.structuredContent ?? envelope) as Partial<LessonResult> & Partial<PlanningRequest>;
+  if (result.status === "needs_lesson" && typeof result.topic === "string" && typeof result.level === "string") {
+    return { status: "needs_lesson", topic: result.topic, level: result.level };
+  }
   if (
     !result.lesson?.title || !result.scene || !Array.isArray(result.scene.elements) ||
     !Array.isArray(result.sections) || result.sections.length === 0
@@ -79,6 +83,7 @@ class CanvasBoundary extends Component<{ children: React.ReactNode }, { error: s
 
 export default function VisualLearningApp() {
   const [result, setResult] = useState<LessonResult | null>(null);
+  const [planningRequest, setPlanningRequest] = useState<PlanningRequest | null>(null);
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [editing, setEditing] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -104,8 +109,24 @@ export default function VisualLearningApp() {
   const receiveResult = useCallback((value: unknown) => {
     try {
       const next = parseLessonResult(value);
+      if ("status" in next) {
+        currentResult.current = null;
+        setResult(null);
+        setApi(null);
+        setPlanningRequest(next);
+        setTopic(next.topic);
+        setLevel(next.level);
+        setActiveSection(null);
+        setEditing(false);
+        setSceneExport(null);
+        setError(null);
+        setNotice(null);
+        setPending(false);
+        return;
+      }
       currentResult.current = next;
       setResult(next);
+      setPlanningRequest(null);
       setTopic(next.lesson.topic);
       setLevel(next.lesson.level ?? "beginner");
       setActiveSection(next.sections[0]?.id ?? null);
@@ -121,6 +142,7 @@ export default function VisualLearningApp() {
     const controller = new AbortController();
     request.current = controller;
     setPending(true);
+    setPlanningRequest(null);
     setError(null);
     setNotice(null);
     try {
@@ -152,6 +174,7 @@ export default function VisualLearningApp() {
       if (typeof args?.topic === "string") setTopic(args.topic);
       setPending(true);
       setError(null);
+      setPlanningRequest(null);
     };
     app.ontoolresult = (value) => receiveResult(value);
     app.ontoolcancelled = () => { setPending(false); setNotice("Lesson generation was cancelled."); };
@@ -318,8 +341,8 @@ export default function VisualLearningApp() {
     </form>}
 
     <div className="lesson-intro">
-      <div><span className="eyebrow">THE VISUAL LESSON</span><h1>{result?.lesson.title ?? (pending ? "Let’s make this clear." : "Your next aha moment.")}</h1><p>{result ? `${result.sections.length} chapters · ${result.lesson.level ?? "beginner"} · read, explore, and make it yours` : "From the big picture to a practical example, one step at a time."}</p></div>
-      {result?.planner === "fixture" && <span className="demo-badge">Event loop demo</span>}
+      <div><span className="eyebrow">THE VISUAL LESSON</span><h1>{result?.lesson.title ?? (pending ? "Let’s make this clear." : planningRequest?.topic ?? "Your next aha moment.")}</h1><p>{result ? `${result.sections.length} chapters · ${result.lesson.level ?? "beginner"} · read, explore, and make it yours` : "From the big picture to a practical example, one step at a time."}</p></div>
+      {result?.planner === "fixture" && <span className="demo-badge">Demo lesson</span>}
     </div>
 
     {(error || notice) && <div className={`status-message ${error ? "is-error" : ""}`} role={error ? "alert" : "status"}><span>{error ?? notice}</span><button aria-label="Dismiss message" onClick={() => { setError(null); setNotice(null); }}>×</button></div>}
@@ -327,7 +350,7 @@ export default function VisualLearningApp() {
     <main className="workspace">
       <aside className="lesson-outline" aria-label="Lesson chapters">
         <div className="outline-heading"><span className="eyebrow">FOLLOW THE STORY</span><span>{result?.sections.length ? String(result.sections.length).padStart(2, "0") : "—"}</span></div>
-        <nav>{result?.sections.map((section) => <button key={section.id} className={`chapter-button${activeSection === section.id ? " is-active" : ""}`} onClick={() => fitWidth(section)} aria-current={activeSection === section.id ? "step" : undefined}><span className="chapter-number">{String(section.number).padStart(2, "0")}</span><span className="chapter-name">{section.title}</span><span className="chapter-dot" /></button>) ?? <div className="outline-placeholder">A clear path through the topic is on its way.</div>}</nav>
+        <nav>{result?.sections.map((section) => <button key={section.id} className={`chapter-button${activeSection === section.id ? " is-active" : ""}`} onClick={() => fitWidth(section)} aria-current={activeSection === section.id ? "step" : undefined}><span className="chapter-number">{String(section.number).padStart(2, "0")}</span><span className="chapter-name">{section.title}</span><span className="chapter-dot" /></button>) ?? <div className="outline-placeholder">{planningRequest ? "Your assistant can prepare the chapters for this topic." : "A clear path through the topic is on its way."}</div>}</nav>
         <div className="outline-note"><span className="note-symbol">↳</span><p>Every chapter lives on this canvas. Follow it from top to bottom.</p></div>
         <div className="outline-footer"><Icon name="read" size={16} /><span>Built for understanding</span></div>
       </aside>
@@ -344,7 +367,7 @@ export default function VisualLearningApp() {
           </div>
         </div>
         <div ref={board} className="board" data-editing={editing}>
-          {result ? <CanvasBoundary><Excalidraw excalidrawAPI={setApi} initialData={{ appState: { currentItemFontFamily: 2 } }} viewModeEnabled={!editing} theme="light" handleKeyboardGlobally={false} detectScroll={true} UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false, saveAsImage: false, toggleTheme: false } }} /></CanvasBoundary> : <div className="empty-board"><div className={`empty-illustration${pending ? " is-loading" : ""}`}><span /><span /><span /><Icon name="board" size={38} /></div><span className="eyebrow">A LITTLE STRUCTURE. A LOT OF CLARITY.</span><h2>{pending ? "Turning ideas into understanding" : "Ready when you are"}</h2><p>{pending ? "Organizing the lesson into a simple visual story…" : "Ask your assistant to teach a topic visually to open its complete lesson here."}</p>{pending && <span className="loading-line"><i /></span>}</div>}
+          {result ? <CanvasBoundary><Excalidraw excalidrawAPI={setApi} initialData={{ appState: { currentItemFontFamily: 2 } }} viewModeEnabled={!editing} theme="light" handleKeyboardGlobally={false} detectScroll={true} UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false, saveAsImage: false, toggleTheme: false } }} /></CanvasBoundary> : <div className="empty-board"><div className={`empty-illustration${pending ? " is-loading" : ""}`}><span /><span /><span /><Icon name="board" size={38} /></div><span className="eyebrow">A LITTLE STRUCTURE. A LOT OF CLARITY.</span><h2>{pending ? "Turning ideas into understanding" : planningRequest ? "Your assistant can plan this lesson" : "Ready when you are"}</h2><p>{pending ? "Organizing the lesson into a simple visual story…" : planningRequest ? `Ask your connected assistant to prepare a visual lesson about ${planningRequest.topic}. Its lesson will become an editable Excalidraw canvas here.` : "Ask your assistant to teach a topic visually to open its complete lesson here."}</p>{pending && <span className="loading-line"><i /></span>}</div>}
           {pending && result && <div className="canvas-loading" role="status"><span className="spinner" />Creating your next lesson…</div>}
         </div>
         <footer className="canvas-footer">

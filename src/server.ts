@@ -1,19 +1,20 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
-import type { LessonPlanner } from "./lesson/planner.js";
-import { teachInputSchema, type TeachInput } from "./lesson/schema.js";
+import { createLessonGuide, NeedsLessonError, type LessonPlanner, type LessonPlannerMode } from "./lesson/planner.js";
+import { lessonGuideInputSchema, resolveTeachInput, teachInputSchema, type TeachInput } from "./lesson/schema.js";
 import { layoutLesson } from "./render/layout.js";
-import type { VisualLesson } from "./render/types.js";
+import type { NeedsLessonResult, VisualLesson } from "./render/types.js";
 
 export const APP_URI = "ui://visual-learning/lesson.html";
 export class LessonService {
   private readonly lessons = new Map<string, VisualLesson>();
-  constructor(private readonly planner: LessonPlanner, readonly mode: "fixture" | "llm", private readonly cacheScenes = true) {}
+  constructor(private readonly planner: LessonPlanner, readonly mode: LessonPlannerMode, private readonly cacheScenes = true) {}
   async teach(input: TeachInput): Promise<VisualLesson> {
-    const lesson = await this.planner.plan(teachInputSchema.parse(input));
+    const request = resolveTeachInput(input);
+    const lesson = request.lesson ? { ...request.lesson, topic: request.topic } : await this.planner.plan(request);
     const { scene, sections } = layoutLesson(lesson);
     const id = crypto.randomUUID();
-    const visual: VisualLesson = { id, lesson, scene, sections, planner: this.mode, ...(this.cacheScenes ? { resourceUri: `lesson://${id}/scene` } : {}) };
+    const visual: VisualLesson = { id, lesson, scene, sections, planner: request.lesson ? "host" : this.mode === "llm" ? "llm" : "fixture", ...(this.cacheScenes ? { resourceUri: `lesson://${id}/scene` } : {}) };
     if (this.cacheScenes) {
       this.lessons.set(id, visual);
       if (this.lessons.size > 32) this.lessons.delete(this.lessons.keys().next().value!);
@@ -27,7 +28,7 @@ export function createServer(service: LessonService, loadUi: () => Promise<strin
   const server = new McpServer({ name: "visual-learning", version: "0.1.0" });
   registerAppTool(server, "teach_visually", {
     title: "Teach visually",
-    description: "Explain a learning topic as a complete 3–6 step visual lesson on one editable Excalidraw canvas. Choose beginner, intermediate, or advanced. Fixture mode supports JavaScript event loop and photosynthesis; configure the LLM planner for arbitrary topics.",
+    description: "Draw a complete 3–6 step visual lesson on one editable Excalidraw canvas at runtime. For arbitrary topics, you (the calling ChatGPT/Codex host assistant) must write the lesson object using your own reasoning and pass it in the same call. The lesson input schema describes all fields; get_lesson_guide provides additional guidance. No server model, API key, or MCP sampling is required. Copy the requested topic and level exactly. Topic-only calls are available for JavaScript event-loop and photosynthesis demos. If a topic-only call returns needs_lesson, complete the lesson and call this tool again without asking the user to repeat their prompt.",
     inputSchema: teachInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: service.mode === "llm" },
     _meta: { ui: { resourceUri: APP_URI } },
@@ -42,8 +43,27 @@ export function createServer(service: LessonService, loadUi: () => Promise<strin
         structuredContent: { ...visual },
       };
     } catch (error) {
+      if (error instanceof NeedsLessonError) {
+        const result: NeedsLessonResult = { status: "needs_lesson", topic: error.guide.topic, level: error.guide.level, guide: error.guide };
+        return {
+          content: [{ type: "text" as const, text: error.message }],
+          structuredContent: { ...result },
+        };
+      }
       return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "Could not create the lesson." }] };
     }
+  });
+  server.registerTool("get_lesson_guide", {
+    title: "Plan a visual lesson",
+    description: "Get the lesson schema and visual teaching rules for a topic. This is a data-only planning tool for the calling host assistant; use your own reasoning to create the lesson, then call teach_visually with it. No server API key or MCP sampling is needed. This tool does not open the lesson UI.",
+    inputSchema: lessonGuideInputSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async input => {
+    const guide = createLessonGuide(input);
+    return {
+      content: [{ type: "text" as const, text: `${guide.instructions.join("\n")}\n\nLesson JSON Schema:\n${JSON.stringify(guide.lessonSchema)}` }],
+      structuredContent: { ...guide },
+    };
   });
   registerAppResource(server, "visual-lesson-app", APP_URI, { mimeType: RESOURCE_MIME_TYPE }, async () => ({
     contents: [{ uri: APP_URI, mimeType: RESOURCE_MIME_TYPE, text: await loadUi(), _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: false } } }],
